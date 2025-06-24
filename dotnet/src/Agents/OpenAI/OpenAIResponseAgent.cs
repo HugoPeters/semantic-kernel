@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -60,6 +61,41 @@ public sealed class OpenAIResponseAgent : Agent
         {
             await this.NotifyThreadOfNewMessage(agentThread, result, cancellationToken).ConfigureAwait(false);
             yield return new(result, agentThread);
+        }
+    }
+
+    public async IAsyncEnumerable<AgentResponseItem<StreamingChatMessageContent>> InvokeStreamingContentAsync(ICollection<KernelContent> messages, AgentThread? thread = null, AgentInvokeOptions? options = null, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        Verify.NotNull(messages);
+
+        var agentThread = await this.EnsureThreadExistsWithMessagesAsync(messages.OfType<ChatMessageContent>().ToList(), thread, cancellationToken).ConfigureAwait(false);
+
+        // Invoke responses with the updated chat history.
+        var chatHistory = new ChatHistory();
+        chatHistory.AddRange(messages.OfType<ChatMessageContent>());
+        int messageCount = chatHistory.Count;
+        var invokeResults = ResponseThreadActions.InvokeStreamingContentAsync(
+            this,
+            chatHistory,
+            agentThread,
+            options,
+            cancellationToken);
+
+        // Return streaming chat message content to the caller.
+        await foreach (var result in invokeResults.ConfigureAwait(false))
+        {
+            yield return new(result, agentThread);
+        }
+
+        // Notify the thread of new messages
+        for (int i = messageCount; i < chatHistory.Count; i++)
+        {
+            await this.NotifyThreadOfNewMessage(agentThread, chatHistory[i], cancellationToken).ConfigureAwait(false);
+
+            if (options?.OnIntermediateMessage is not null)
+            {
+                await options.OnIntermediateMessage(chatHistory[i]).ConfigureAwait(false);
+            }
         }
     }
 

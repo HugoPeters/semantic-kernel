@@ -259,7 +259,7 @@ internal sealed class FunctionCallsProcessor
 
         this._logger.LogFunctionCalls(functionCalls);
 
-        List<Task<FunctionResultContext>> functionTasks = new(functionCalls.Length);
+        //List<FunctionResultContext> functionTasks = new(functionCalls.Length);
 
         // We must send back a result for every function call, regardless of whether we successfully executed it or not.
         // If we successfully execute it, we'll add the result. If we don't, we'll add an error.
@@ -292,16 +292,28 @@ internal sealed class FunctionCallsProcessor
 
             s_inflightAutoInvokes.Value++;
 
-            functionTasks.Add(this.ExecuteFunctionCallAsync(invocationContext, functionCall, function, kernel, cancellationToken));
-        }
+            var result = await this.ExecuteFunctionCallAsync(invocationContext, functionCall, function, kernel, cancellationToken).ConfigureAwait(false);
+            yield return this.GenerateResultContent(result);
+        } 
 
-        // Wait for all of the function invocations to complete, then add the results to the chat, but stop when we hit a
-        // function for which termination was requested.
-        FunctionResultContext[] resultContexts = await Task.WhenAll(functionTasks).ConfigureAwait(false);
-        foreach (FunctionResultContext resultContext in resultContexts)
-        {
-            yield return this.GenerateResultContent(resultContext);
-        }
+        //if (options.AllowConcurrentInvocation)
+        //{
+        //    // Wait for all of the function invocations to complete, then add the results to the chat, but stop when we hit a
+        //    // function for which termination was requested.
+        //    FunctionResultContext[] resultContexts = await Task.WhenAll(functionTasks).ConfigureAwait(false);
+        //    foreach (FunctionResultContext resultContext in resultContexts)
+        //    {
+        //        yield return this.GenerateResultContent(resultContext);
+        //    }
+        //}
+        //else
+        //{
+        //    foreach (var task in functionTasks)
+        //    {
+        //        var resultContext = task;
+        //        yield return this.GenerateResultContent(resultContext);
+        //    }
+        //}
     }
 
     private static bool TryValidateFunctionCall(

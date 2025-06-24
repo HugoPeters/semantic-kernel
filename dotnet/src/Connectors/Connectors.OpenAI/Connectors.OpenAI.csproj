@@ -32,11 +32,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\..\..\..\openai-dotnet\src\OpenAI.csproj" />
+    <ProjectReference Include="..\..\SemanticKernel.Abstractions\SemanticKernel.Abstractions.csproj" />
     <ProjectReference Include="..\..\SemanticKernel.Core\SemanticKernel.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="OpenAI" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
   </ItemGroup>
 

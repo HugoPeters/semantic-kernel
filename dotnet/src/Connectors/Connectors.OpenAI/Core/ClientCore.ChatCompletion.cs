@@ -153,7 +153,7 @@ internal partial class ClientCore
 
         ValidateMaxTokens(chatExecutionSettings.MaxTokens);
 
-        for (int requestIndex = 0; ; requestIndex++)
+        for (int requestIndex = 0; ; requestIndex++)    
         {
             var chatForRequest = CreateChatCompletionMessages(chatExecutionSettings, chatHistory);
 

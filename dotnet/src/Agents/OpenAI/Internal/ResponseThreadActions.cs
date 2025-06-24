@@ -288,6 +288,212 @@ internal static class ResponseThreadActions
         }
     }
 
+    public static async IAsyncEnumerable<StreamingChatMessageContent> InvokeStreamingContentAsync(
+       OpenAIResponseAgent agent,
+       ICollection<ChatMessageContent> messages,
+       AgentThread agentThread,
+       AgentInvokeOptions? options,
+       [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var kernel = options?.Kernel ?? agent.Kernel;
+        var responseAgentThread = agentThread as OpenAIResponseAgentThread;
+
+        List<ResponseItem> inputItems = new();
+        foreach (var msg in messages)
+        {
+            List<ResponseContentPart> parts = new();
+
+            foreach (var item in msg.Items)
+            {
+                if (item is TextContent textContent)
+                {
+                    parts.Add(ResponseContentPart.CreateInputTextPart(textContent.Text));
+                }
+                else if (item is ImageContent imageContent)
+                {
+                    parts.Add(ResponseContentPart.CreateInputImagePart(imageContent.Uri));
+                }
+                else if (item is BinaryContent binaryContent)
+                {
+                    parts.Add(ResponseContentPart.CreateInputFilePart(binaryContent.Metadata["fileId"]!.ToString(),
+                                                                    binaryContent.Metadata["fileName"]!.ToString(),
+                                                                    new BinaryData(binaryContent.Data)));
+                }
+            }
+
+            switch (msg.Role.Label)
+            {
+                case "system": inputItems.Add(ResponseItem.CreateSystemMessageItem(parts)); break;
+                case "user": inputItems.Add(ResponseItem.CreateUserMessageItem(parts)); break;
+                case "developer": inputItems.Add(ResponseItem.CreateDeveloperMessageItem(parts)); break;
+                case "assistant": inputItems.Add(ResponseItem.CreateAssistantMessageItem(parts)); break;
+                default: throw new NotSupportedException($"Unsupported role {msg.Role.Label}. Only system, user, developer or assistant roles are allowed.");
+            }
+        }
+
+        var creationOptions = ResponseCreationOptionsFactory.CreateOptions(agent, agentThread, options);
+
+        FunctionCallsProcessor functionProcessor = new();
+        FunctionChoiceBehaviorOptions functionOptions = new()
+        {
+            AllowConcurrentInvocation = false,
+            AllowStrictSchemaAdherence = true,
+            AllowParallelCalls = true,
+            RetainArgumentTypes = true
+        };
+
+        ChatMessageContent? message = null;
+        for (int requestIndex = 0; ; requestIndex++)
+        {
+            // Make the call to the OpenAIResponseClient and process the streaming results.
+            DateTimeOffset? createdAt = null;
+            string? responseId = null;
+            string? modelId = null;
+            AuthorRole? lastRole = null;
+            Dictionary<int, MessageResponseItem> outputIndexToMessages = [];
+            Dictionary<int, FunctionCallInfo>? functionCallInfos = null;
+            StreamingFunctionCallUpdateContent? functionCallUpdateContent = null;
+            OpenAIResponse? response = null;
+            await foreach (var streamingUpdate in agent.Client.CreateResponseStreamingAsync(inputItems, creationOptions, cancellationToken).ConfigureAwait(false))
+            {
+                switch (streamingUpdate)
+                {
+                    case StreamingResponseCreatedUpdate createdUpdate:
+                        createdAt = createdUpdate.Response.CreatedAt;
+                        responseId = createdUpdate.Response.Id;
+                        modelId = createdUpdate.Response.Model;
+                        break;
+
+                    case StreamingResponseCompletedUpdate completedUpdate:
+                        response = completedUpdate.Response;
+                        message = completedUpdate.Response.ToChatMessageContent();
+                        break;
+
+                    case StreamingResponseOutputItemAddedUpdate outputItemAddedUpdate:
+                        switch (outputItemAddedUpdate.Item)
+                        {
+                            case MessageResponseItem mri:
+                                outputIndexToMessages[outputItemAddedUpdate.OutputIndex] = mri;
+                                break;
+
+                            case FunctionCallResponseItem fcri:
+                                (functionCallInfos ??= [])[outputItemAddedUpdate.OutputIndex] = new(fcri);
+                                break;
+                        }
+
+                        break;
+
+                    case StreamingResponseOutputItemDoneUpdate outputItemDoneUpdate:
+                        _ = outputIndexToMessages.Remove(outputItemDoneUpdate.OutputIndex);
+                        break;
+
+                    case StreamingResponseOutputTextDeltaUpdate outputTextDeltaUpdate:
+                        _ = outputIndexToMessages.TryGetValue(outputTextDeltaUpdate.OutputIndex, out MessageResponseItem? messageItem);
+                        lastRole = messageItem?.Role.ToAuthorRole();
+                        yield return outputTextDeltaUpdate.ToStreamingChatMessageContent(modelId, lastRole);
+
+                        break;
+
+                    case StreamingResponseFunctionCallArgumentsDeltaUpdate functionCallArgumentsDeltaUpdate:
+                    {
+                        if (functionCallInfos?.TryGetValue(functionCallArgumentsDeltaUpdate.OutputIndex, out FunctionCallInfo? callInfo) is true)
+                        {
+                            _ = (callInfo.Arguments ??= new()).Append(functionCallArgumentsDeltaUpdate.Delta);
+                        }
+
+                        break;
+                    }
+
+                    case StreamingResponseFunctionCallArgumentsDoneUpdate functionCallOutputDoneUpdate:
+                    {
+                        if (functionCallInfos?.TryGetValue(functionCallOutputDoneUpdate.OutputIndex, out FunctionCallInfo? callInfo) is true)
+                        {
+                            _ = functionCallInfos.Remove(functionCallOutputDoneUpdate.OutputIndex);
+
+                            functionCallUpdateContent = callInfo.ResponseItem.ToStreamingFunctionCallUpdateContent(callInfo.Arguments?.ToString() ?? string.Empty);
+
+                            yield return new StreamingChatMessageContent(
+                                lastRole ?? AuthorRole.Assistant,
+                                content: null)
+                            {
+                                ModelId = modelId,
+                                InnerContent = functionCallOutputDoneUpdate,
+                                Items = [functionCallUpdateContent],
+                            };
+                        }
+
+                        break;
+                    }
+
+                    case StreamingResponseErrorUpdate errorUpdate:
+                        yield return errorUpdate.ToStreamingChatMessageContent(modelId, lastRole);
+                        break;
+
+                    case StreamingResponseRefusalDoneUpdate refusalDone:
+                        yield return refusalDone.ToStreamingChatMessageContent(modelId, lastRole);
+                        break;
+                }
+            }
+
+            // Update the response ID in the creation options
+            if (responseAgentThread is not null)
+            {
+                creationOptions.PreviousResponseId = responseId;
+                responseAgentThread.ResponseId = responseId;
+            }
+            else if (response is not null)
+            {
+                inputItems.AddRange(response.OutputItems);
+            }
+
+            // Reached maximum auto invocations
+            if (requestIndex == MaximumAutoInvokeAttempts)
+            {
+                break;
+            }
+
+            // Check if there a function to invoke.
+            if (functionCallUpdateContent is null)
+            {
+                break;
+            }
+
+            // Invoke functions and create function output items for results
+            FunctionResultContent[] functionResults =
+                await functionProcessor.InvokeFunctionCallsAsync(
+                    message!,
+                    (_) => true,
+                    functionOptions,
+                    kernel,
+                    isStreaming: false,
+                    cancellationToken).ToArrayAsync(cancellationToken).ConfigureAwait(false);
+            var functionOutputItems = functionResults.Select(fr => ResponseItem.CreateFunctionCallOutputItem(fr.CallId, fr.Result?.ToString() ?? string.Empty)).ToList();
+
+            // If store is enabled we only need to send the function output items
+            if (agent.StoreEnabled)
+            {
+                inputItems = [.. functionOutputItems];
+            }
+            else
+            {
+                inputItems.AddRange(functionOutputItems);
+            }
+
+            // Return the function results as a message
+            ChatMessageContentItemCollection items = new();
+            items.AddRange(functionResults);
+            StreamingChatMessageContent functionResultMessage = new(
+                AuthorRole.Tool,
+                content: null)
+            {
+                ModelId = modelId,
+                InnerContent = functionCallUpdateContent,
+                Items = [functionCallUpdateContent],
+            };
+            yield return functionResultMessage;
+        }
+    }
+
     private static ChatHistory GetChatHistory(AgentThread agentThread, ChatHistory history)
     {
         if (agentThread is ChatHistoryAgentThread chatHistoryAgentThread)
