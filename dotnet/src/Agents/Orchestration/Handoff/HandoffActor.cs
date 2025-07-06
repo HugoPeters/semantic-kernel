@@ -135,9 +135,13 @@ internal sealed class HandoffActor :
             if (this.InteractiveCallback != null && this._taskSummary == null)
             {
                 ChatMessageContent input = await this.InteractiveCallback().ConfigureAwait(false);
-                await this.PublishMessageAsync(new HandoffMessages.Response { Message = input }, this.Context.Topic, messageId: null, messageContext.CancellationToken).ConfigureAwait(false);
-                this._cache.Add(input);
-                continue;
+
+                if (input != null)
+                {
+                    await this.PublishMessageAsync(new HandoffMessages.Response { Message = input }, this.Context.Topic, messageId: null, messageContext.CancellationToken).ConfigureAwait(false);
+                    this._cache.Add(input);
+                    continue;
+                }
             }
 
             await this.EndAsync(response.Content ?? "No handoff or human response function requested. Ending task.", messageContext.CancellationToken).ConfigureAwait(false);

@@ -23,7 +23,12 @@ internal static class ResponseCreationOptionsFactory
             return responseAgentInvokeOptions.ResponseCreationOptions;
         }
 
-        var responseTools = agent.Kernel.Plugins
+        // use kernel from invokeOptions if available
+        // this is used in handoff orchestration to pass "dynamic" plugins
+        // for managing dispatch of messages to other agents
+        var kernel = invokeOptions?.Kernel ?? agent.Kernel;
+
+        var responseTools = kernel.Plugins
             .SelectMany(kp => kp.Select(kf => kf.ToResponseTool(kp.Name)));
 
         var creationOptions = new ResponseCreationOptions()
