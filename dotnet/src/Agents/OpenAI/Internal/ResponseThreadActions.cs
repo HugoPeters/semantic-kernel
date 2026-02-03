@@ -432,6 +432,29 @@ internal static class ResponseThreadActions
                     case StreamingResponseRefusalDoneUpdate refusalDone:
                         yield return refusalDone.ToStreamingChatMessageContent(modelId, lastRole);
                         break;
+
+                    case StreamingResponseWebSearchCallSearchingUpdate searchingUpdate:
+                        yield return new StreamingChatMessageContent(AuthorRole.Assistant, string.Empty) { InnerContent = searchingUpdate };
+                        break;
+
+                    case StreamingResponseWebSearchCallInProgressUpdate searchCallInProgressUpdate:
+                        yield return new StreamingChatMessageContent(AuthorRole.Assistant, string.Empty) { InnerContent = searchCallInProgressUpdate };
+                        break;
+
+                    case StreamingResponseWebSearchCallCompletedUpdate webSearchCallCompletedUpdate:
+                        yield return new StreamingChatMessageContent(AuthorRole.Assistant, string.Empty) { InnerContent = webSearchCallCompletedUpdate };
+                        break;
+
+                    case StreamingResponseTextAnnotationAddedUpdate annotationAddedUpdate:
+                    {
+                        var annotation = GenerateStreamingAnnotationContent(annotationAddedUpdate);
+                        if (annotation != null)
+                        {
+                            yield return new StreamingChatMessageContent(AuthorRole.Assistant, string.Empty) { InnerContent = annotation };
+                        }
+
+                        break;
+                    }
                 }
             }
 
@@ -492,6 +515,38 @@ internal static class ResponseThreadActions
             };
             yield return functionResultMessage;
         }
+    }
+
+    private static StreamingAnnotationContent? GenerateStreamingAnnotationContent(StreamingResponseTextAnnotationAddedUpdate annotationEvent)
+    {
+        var annotation = annotationEvent.Annotation;
+
+        switch (annotation.Kind)
+        {
+            case ResponseMessageAnnotationKind.FileCitation:
+            {
+                return new StreamingAnnotationContent(AnnotationKind.FileCitation, annotation.FileCitationFileId)
+                {
+                };
+            }
+
+            case ResponseMessageAnnotationKind.FilePath:
+            {
+                return new StreamingAnnotationContent(AnnotationKind.FileCitation, annotation.FilePathFileId)
+                {
+                };
+            }
+
+            case ResponseMessageAnnotationKind.UriCitation:
+            {
+                return new StreamingAnnotationContent(AnnotationKind.UrlCitation, annotation.UriCitationUri)
+                {
+                    Label = annotation.UriCitationTitle,
+                };
+            }
+        }
+
+        return null;
     }
 
     private static ChatHistory GetChatHistory(AgentThread agentThread, ChatHistory history)

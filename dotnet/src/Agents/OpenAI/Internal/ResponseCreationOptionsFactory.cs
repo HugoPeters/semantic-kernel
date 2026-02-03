@@ -36,6 +36,8 @@ internal static class ResponseCreationOptionsFactory
             EndUserId = agent.GetDisplayName(),
             Instructions = $"{agent.Instructions}\n{invokeOptions?.AdditionalInstructions}",
             StoredOutputEnabled = agent.StoreEnabled,
+            Temperature = 0.3f,
+            Tools = { ResponseTool.CreateWebSearchTool() }
         };
 
         if (agent.StoreEnabled && agentThread.Id is not null)
