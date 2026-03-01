@@ -68,6 +68,10 @@ internal static class OpenAIResponseExtensions
         {
             return messageResponseItem.Content.ToChatMessageContentItemCollection();
         }
+        else if (item is WebSearchCallResponseItem webSearchResponseItem)
+        {
+            return [];
+        }
         else if (item is FunctionCallResponseItem functionCallResponseItem)
         {
             Exception? exception = null;

@@ -319,6 +319,10 @@ internal static class ResponseThreadActions
                                                                     binaryContent.Metadata["fileName"]!.ToString(),
                                                                     new BinaryData(binaryContent.Data)));
                 }
+                else if (item is FileReferenceContent fileContent)
+                {
+                    parts.Add(ResponseContentPart.CreateInputFilePart(fileContent.FileId, string.Empty, null, fileUrl: fileContent.FileUrl));
+                }
             }
 
             switch (msg.Role.Label)

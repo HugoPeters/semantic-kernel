@@ -16,6 +16,8 @@ public class FileReferenceContent : KernelContent
     /// </summary>
     public string FileId { get; }
 
+    public string FileUrl { get; set; }
+
     /// <summary>
     /// An optional tool association.
     /// </summary>
@@ -32,7 +34,7 @@ public class FileReferenceContent : KernelContent
     [JsonConstructor]
     public FileReferenceContent(string fileId)
     {
-        Verify.NotNullOrWhiteSpace(fileId, nameof(fileId));
+        // Verify.NotNullOrWhiteSpace(fileId, nameof(fileId));
 
         this.FileId = fileId;
     }
