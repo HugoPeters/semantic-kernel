@@ -52,6 +52,11 @@ internal static class KernelContentExtensions
 
     internal static ResponseContentPart ToResponseContentPart(this FileReferenceContent content)
     {
+        if (content.FileUrl != null)
+        {
+            return ResponseContentPart.CreateInputFilePart(content.FileUrl);
+        }
+
         return content.FileId is not null
             ? ResponseContentPart.CreateInputFilePart(content.FileId)
             : throw new NotSupportedException("FileReferenceContent cannot be converted to ResponseContentPart. Only FileReferenceContent with a file id is supported.");

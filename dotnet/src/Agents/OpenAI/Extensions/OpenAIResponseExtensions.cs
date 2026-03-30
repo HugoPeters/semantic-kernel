@@ -49,6 +49,10 @@ internal static class OpenAIResponseExtensions
             var role = messageResponseItem.Role.ToAuthorRole();
             return new ChatMessageContent(role, item.ToChatMessageContentItemCollection(), innerContent: messageResponseItem);
         }
+        else if (item is WebSearchCallResponseItem webSearchResponseItem)
+        {
+            return null;
+        }
         else if (item is ReasoningResponseItem reasoningResponseItem)
         {
             if (reasoningResponseItem.SummaryParts is not null && reasoningResponseItem.SummaryParts.Count > 0)

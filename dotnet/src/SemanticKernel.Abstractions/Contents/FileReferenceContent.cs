@@ -1,4 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
+
+using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
@@ -17,6 +19,11 @@ public class FileReferenceContent : KernelContent
     public string FileId { get; }
 
     /// <summary>
+    /// The file URL.
+    /// </summary>
+    public Uri? FileUrl { get; set; }
+
+    /// <summary>
     /// An optional tool association.
     /// </summary>
     /// <remarks>
@@ -32,8 +39,6 @@ public class FileReferenceContent : KernelContent
     [JsonConstructor]
     public FileReferenceContent(string fileId)
     {
-        Verify.NotNullOrWhiteSpace(fileId, nameof(fileId));
-
         this.FileId = fileId;
     }
 }
